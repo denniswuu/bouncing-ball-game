@@ -35,7 +35,24 @@ canvas{display:block}
 <div id="instructions">Click to launch! Collect colored balls, avoid red skulls!</div>
 <div id="start-screen"><h1>Bouncing Ball Adventure</h1><div id="subtitle">Click screen to launch, collect colored balls for points<br>avoid red skull balls! Get shields and health boosts!</div><button id="start-btn">Start Game</button></div>
 <div id="game-over"><h2>Game Over</h2><div id="final-score">Final Score: 0</div><button id="restart-btn">Restart</button></div>
-<script>var canvas = document.getElementById("gameCanvas");
+<script>var audioCtx = null; var musicGain = null; var sfxGain = null; var musicPlaying = false; var beatInterval = null; var melodyIdx = 0; var bassIdx = 0; var beatCount = 0;
+function initAudio() { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); musicGain = audioCtx.createGain(); musicGain.gain.value = 0.3; musicGain.connect(audioCtx.destination); sfxGain = audioCtx.createGain(); sfxGain.gain.value = 0.4; sfxGain.connect(audioCtx.destination); } catch(e) {} }
+function playNote(freq, dur, type, gn, vol) { if (!audioCtx) return; var osc = audioCtx.createOscillator(); var gain = audioCtx.createGain(); osc.type = type || 'sine'; osc.frequency.setValueAtTime(freq, audioCtx.currentTime); gain.gain.setValueAtTime(vol || 0.15, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur); osc.connect(gain); gain.connect(gn || musicGain); osc.start(); osc.stop(audioCtx.currentTime + dur); }
+function playCollectSound(combo) { if (!audioCtx) return; var bf = 523 + combo * 30; playNote(bf, 0.15, 'sine', sfxGain, 0.25); setTimeout(function() { playNote(bf * 1.5, 0.12, 'sine', sfxGain, 0.2); }, 50); setTimeout(function() { playNote(bf * 2, 0.2, 'triangle', sfxGain, 0.15); }, 100); }
+function playHitSound() { if (!audioCtx) return; playNote(150, 0.3, 'sawtooth', sfxGain, 0.25); playNote(100, 0.4, 'square', sfxGain, 0.15); }
+function playShieldSound() { if (!audioCtx) return; playNote(800, 0.1, 'sine', sfxGain, 0.2); setTimeout(function() { playNote(1200, 0.15, 'sine', sfxGain, 0.18); }, 80); setTimeout(function() { playNote(1600, 0.2, 'sine', sfxGain, 0.15); }, 160); }
+function playLaunchSound() { if (!audioCtx) return; playNote(300, 0.1, 'sawtooth', sfxGain, 0.15); setTimeout(function() { playNote(600, 0.08, 'sawtooth', sfxGain, 0.12); }, 40); }
+var melodyNotes = [523,587,659,784,880,784,659,587,523,494,440,494,523,587,659,523]; var bassNotes = [261,293,329,392,440,392,329,293,261,220,247,220,261,293,329,261];
+function playMelodyBeat() { if (!musicPlaying || !audioCtx) return; var mi = melodyIdx % melodyNotes.length; var bi = bassIdx % bassNotes.length; playNote(melodyNotes[mi], 0.12, 'square', musicGain, 0.07); playNote(bassNotes[bi], 0.2, 'triangle', musicGain, 0.12); melodyIdx++; bassIdx++; if (melodyIdx % melodyNotes.length === 0) bassIdx += 2; }
+function playKick() { if (!audioCtx) return; var osc = audioCtx.createOscillator(); var gain = audioCtx.createGain(); osc.frequency.setValueAtTime(150, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.1); gain.gain.setValueAtTime(0.18, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1); osc.connect(gain); gain.connect(musicGain); osc.start(); osc.stop(audioCtx.currentTime + 0.1); }
+function playHiHat() { if (!audioCtx) return; var bs = audioCtx.sampleRate * 0.05; var buf = audioCtx.createBuffer(1, bs, audioCtx.sampleRate); var d = buf.getChannelData(0); for (var i = 0; i < bs; i++) d[i] = (Math.random() * 2 - 1) * 0.5; var src = audioCtx.createBufferSource(); src.buffer = buf; var g = audioCtx.createGain(); g.gain.setValueAtTime(0.06, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05); var f = audioCtx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 8000; src.connect(f); f.connect(g); g.connect(musicGain); src.start(); }
+function musicTick() { if (!musicPlaying) return; playMelodyBeat(); if (beatCount % 4 === 0) playKick(); if (beatCount % 2 === 1) playHiHat(); beatCount++; }
+function startMusic() { if (!audioCtx) initAudio(); if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); if (musicPlaying) return; musicPlaying = true; beatCount = 0; beatInterval = setInterval(musicTick, 150); }
+function stopMusic() { musicPlaying = false; if (beatInterval) clearInterval(beatInterval); }
+function playGameOverSound() { if (!audioCtx) return; playNote(440, 0.2, 'sawtooth', sfxGain, 0.2); setTimeout(function() { playNote(350, 0.2, 'sawtooth', sfxGain, 0.18); }, 200); setTimeout(function() { playNote(260, 0.4, 'sawtooth', sfxGain, 0.15); }, 400); }
+
+
+var canvas = document.getElementById("gameCanvas");
 var ctx = canvas.getContext('2d');
 var W, H;
 function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
@@ -90,7 +107,7 @@ class Collectible {
 class Enemy {
   constructor() { this.x=100+Math.random()*(W-200); this.y=100+Math.random()*(H-200); this.r=18+Math.random()*12; this.spd=1.5+Math.random()*1.5; var a=Math.random()*Math.PI*2; this.vx=Math.cos(a)*this.spd; this.vy=Math.sin(a)*this.spd; this.pulse=Math.random()*Math.PI*2; }
   update() { this.x+=this.vx; this.y+=this.vy; this.pulse+=0.06; if(this.x<this.r||this.x>W-this.r){this.vx*=-1;this.x=Math.max(this.r,Math.min(W-this.r,this.x));} if(this.y<this.r||this.y>H-this.r){this.vy*=-1;this.y=Math.max(this.r,Math.min(H-this.r,this.y));} }
-  draw() { var ps=this.r+Math.sin(this.pulse)*4; var gg=ctx.createRadialGradient(this.x,this.y,0,this.x,this.y,ps*2.2); gg.addColorStop(0,'rgba(255,50,50,0.5)'); gg.addColorStop(1,'rgba(255,0,0,0)'); ctx.beginPath(); ctx.arc(this.x,this.y,ps*2.2,0,Math.PI*2); ctx.fillStyle=gg; ctx.fill(); var bg=ctx.createRadialGradient(this.x-ps*0.3,this.y-ps*0.3,0,this.x,this.y,ps); bg.addColorStop(0,'rgba(255,180,180,1)'); bg.addColorStop(0.5,'rgba(255,50,50,1)'); bg.addColorStop(1,'rgba(120,0,0,1)'); ctx.beginPath(); ctx.arc(this.x,this.y,ps,0,Math.PI*2); ctx.fillStyle=bg; ctx.fill(); ctx.font=Math.floor(ps*1.2)+'px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('\u2620\uFE0F',this.x,this.y); }
+  draw() { var ps=this.r+Math.sin(this.pulse)*4; var gg=ctx.createRadialGradient(this.x,this.y,0,this.x,this.y,ps*2.2); gg.addColorStop(0,'rgba(180,50,255,0.5)'); gg.addColorStop(1,'rgba(255,0,0,0)'); ctx.beginPath(); ctx.arc(this.x,this.y,ps*2.2,0,Math.PI*2); ctx.fillStyle=gg; ctx.fill(); var bg=ctx.createRadialGradient(this.x-ps*0.3,this.y-ps*0.3,0,this.x,this.y,ps); bg.addColorStop(0,'rgba(220,150,255,1)'); bg.addColorStop(0.5,'rgba(160,30,220,1)'); bg.addColorStop(1,'rgba(100,0,120,1)'); ctx.beginPath(); ctx.arc(this.x,this.y,ps,0,Math.PI*2); ctx.fillStyle=bg; ctx.fill(); ctx.font=Math.floor(ps*1.2)+'px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('\u2620\uFE0F',this.x,this.y); }
 }
 
 // PowerUps
@@ -138,9 +155,9 @@ function checkCollisions() {
     var c=collectibles[i]; var dx=player.x-c.x, dy=player.y-c.y, dist=Math.sqrt(dx*dx+dy*dy);
     if(dist<player.r+c.r){
       combo++; comboTimer=120; var pts=c.points*Math.max(1,combo); score+=pts;
-      floatingTexts.push(new FloatingText(c.x,c.y,'+'+pts,c.color)); explosion(c.x,c.y,c.color,15);
+      floatingTexts.push(new FloatingText(c.x,c.y,'+'+pts,c.color)); explosion(c.x,c.y,c.color,15); playCollectSound(combo);
       if(c.heal){health=Math.min(maxHealth,health+c.heal); floatingTexts.push(new FloatingText(c.x,c.y-20,'HP+'+c.heal,'#ff4466'));}
-      if(c.shield){player.shield=true; player.shieldTimer=300; floatingTexts.push(new FloatingText(c.x,c.y-20,'SHIELD!','#44ddff'));}
+      if(c.shield){player.shield=true; player.shieldTimer=300; floatingTexts.push(new FloatingText(c.x,c.y-20,'SHIELD!','#44ddff')); playShieldSound();}
       updateUI();
     } else { rem.push(c); }
   }
@@ -154,7 +171,7 @@ function checkCollisions() {
         enemies.splice(i,1); i--; score+=50; combo+=2; comboTimer=120;
         floatingTexts.push(new FloatingText(e.x,e.y,'+50','#44ddff')); updateUI();
       } else if(!player.invincible){
-        health-=25; player.invincible=true; player.invTimer=60;
+        health-=25; player.invincible=true; player.invTimer=60; playHitSound();
         explosion(player.x,player.y,'rgba(255,50,50,0.8)',25); updateUI();
         if(health<=0){gameOver(); return;}
       }
@@ -185,7 +202,7 @@ function gameOver() {
   explosion(player.x,player.y,'rgba(100,255,218,0.8)',60);
   explosion(player.x,player.y,'rgba(255,100,100,0.8)',40);
   document.getElementById('final-score').textContent='Final Score: '+score;
-  document.getElementById('game-over').classList.add('show');
+  document.getElementById('game-over').classList.add('show'); playGameOverSound(); stopMusic();
 }
 
 function gameLoop(ts) {
@@ -221,7 +238,7 @@ function handleClick(cx,cy){
   if(dist<5) return;
   var spd=6+level*0.3;
   player.vx=(dx/dist)*spd; player.vy=(dy/dist)*spd;
-  explosion(player.x,player.y,'rgba(100,255,218,0.8)',12);
+  explosion(player.x,player.y,'rgba(100,255,218,0.8)',12); playLaunchSound();
 }
 canvas.addEventListener('click',function(e){handleClick(e.clientX,e.clientY);});
 canvas.addEventListener('touchstart',function(e){e.preventDefault();if(e.touches.length>0)handleClick(e.touches[0].clientX,e.touches[0].clientY);});
@@ -237,12 +254,12 @@ document.addEventListener('keydown',function(e){
 document.getElementById('start-btn').addEventListener('click',function(){
   document.getElementById('start-screen').classList.add('hidden');
   setTimeout(function(){document.getElementById('start-screen').style.display='none';},500);
-  initGame(); gameRunning=true; lastTime=0; animFrame=requestAnimationFrame(gameLoop);
+  initGame(); gameRunning=true; lastTime=0; startMusic(); animFrame=requestAnimationFrame(gameLoop);
 });
 document.getElementById('restart-btn').addEventListener('click',function(){
   document.getElementById('game-over').classList.remove('show');
   if(animFrame) cancelAnimationFrame(animFrame); lastTime=0;
-  initGame(); gameRunning=true; animFrame=requestAnimationFrame(gameLoop);
+  initGame(); gameRunning=true; startMusic(); animFrame=requestAnimationFrame(gameLoop);
 });
 
 // Initial background
