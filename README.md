@@ -96,3 +96,6 @@ bouncing-ball-game/
 ## 📄 许可证
 
 MIT License
+
+## 测试提交
+这是由 Codex 自动测试的一次提交，用于验证 git 流程是否顺畅。
